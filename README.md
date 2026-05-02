@@ -66,10 +66,7 @@ Alternatively, you may skip the shell and go straight into Claude. Anything you 
 
 To exit, type `exit`.
 
-<details>
-<summary><strong>More usage patterns</strong> (aliases, drop straight into Claude, piping)</summary>
-
-#### Aliases
+**Aliases**
 
 ```sh
 alias claude-pod=~/tools/claude-pod/claude-pod                                  # shell first
@@ -77,20 +74,6 @@ alias cc='~/tools/claude-pod/claude-pod claude --dangerously-skip-permissions'  
 ```
 
 The shell-first form is more flexible (run `npm install`, dev server, tests, then `claude`), so it stays the default.
-
-#### Piping data (standard input)
-
-Because `claude-pod` correctly handles TTY detection, you can seamlessly pipe files or command outputs directly into Claude just like a native CLI tool:
-
-```sh
-# Review a git diff (using the alias above)
-git diff | cc -p "Please review these changes for bugs"
-
-# Analyze a log file
-cat crash.log | cc -p "Why did the server crash?"
-```
-
-</details>
 
 ## Exposing ports
 
