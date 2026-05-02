@@ -26,18 +26,6 @@ Docker is the only requirement. The install path (`~/tools/claude-pod`) is just 
 
 Claude Code runs inside the container, not on your host — you do not need Node.js, npm, or the `claude` CLI installed on your machine. The host stays untouched apart from one state folder (`~/.claude-pod/`) that exists only to keep your login across container restarts.
 
-## Platforms
-
-The wrapper is portable POSIX bash + Docker. It should work on any host with a recent Docker:
-
-- **macOS** (Apple Silicon and Intel) with Docker Desktop, OrbStack, or Colima — primary development target.
-- **Linux** with Docker Engine or Docker Desktop — bind mounts and `--user` UID/GID map directly here, the most native experience.
-- **Windows + WSL2** with Docker Desktop's WSL2 backend — run `claude-pod` from inside a WSL distribution's bash shell.
-
-**Native Windows** (`cmd.exe` / PowerShell) is not supported. The wrapper is a bash script and uses POSIX tools (`id`, etc.); use WSL2 instead.
-
-If a platform doesn't behave as expected, please open an issue.
-
 ## What it actually does
 
 The whole tool is four tiny files:
@@ -222,6 +210,18 @@ No `sudo`, no writes to `/usr/local/`, `/etc/`, `~/.zshrc`, `~/Library/`, your e
 Removes `~/.claude-pod/` and the `claude-pod` image after confirmation. Tells you exactly what it isn't touching (`node:24-slim`, build cache, this repo) and how to clean those up yourself.
 
 If you added a shell alias for convenience (e.g. `alias claude-pod=...` or `alias cc=...` in `~/.zshrc` / `~/.bashrc`), remove that line too — `uninstall.sh` doesn't touch your shell rc files.
+
+## Platforms
+
+The wrapper is portable POSIX bash + Docker. It should work on any host with a recent Docker:
+
+- **macOS** (Apple Silicon and Intel) with Docker Desktop, OrbStack, or Colima — primary development target.
+- **Linux** with Docker Engine or Docker Desktop — bind mounts and `--user` UID/GID map directly here, the most native experience.
+- **Windows + WSL2** with Docker Desktop's WSL2 backend — run `claude-pod` from inside a WSL distribution's bash shell.
+
+**Native Windows** (`cmd.exe` / PowerShell) is not supported. The wrapper is a bash script and uses POSIX tools (`id`, etc.); use WSL2 instead.
+
+If a platform doesn't behave as expected, please open an issue.
 
 ## License & trademarks
 
