@@ -15,7 +15,9 @@ Demo placeholder. Drop a recording or screenshot in here when you have one, e.g.
 
 ```sh
 git clone https://github.com/trekhleb/claude-pod.git ~/tools/claude-pod
+
 cd ~/tools/claude-pod && ./install.sh
+
 ~/tools/claude-pod/claude-pod claude --dangerously-skip-permissions
 ```
 
