@@ -182,6 +182,6 @@ Removes `~/.claude-pod/` and the `claude-pod` image after confirmation. Tells yo
 
 ## License & trademarks
 
-The code in this repository is released under the MIT License (add a `LICENSE` file with the standard MIT text — none ships with the repo by default; pick the license you want).
+The code in this repository is released under the MIT License — see [`LICENSE`](LICENSE) for the full text.
 
 Claude Code itself is a separate product owned by Anthropic, PBC, and is **not** redistributed by this project — `install.sh` fetches it from npm at build time. This project is not affiliated with, endorsed by, or sponsored by Anthropic, PBC. "Claude" and "Claude Code" are trademarks of Anthropic, PBC, referenced here nominatively. No Anthropic logos, wordmarks, or other brand assets are used.
