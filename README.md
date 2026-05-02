@@ -14,15 +14,19 @@ git clone https://github.com/trekhleb/claude-pod.git ~/tools/claude-pod
 cd ~/tools/claude-pod && ./install.sh
 
 # Open your project folder and launch claude code inside container
-# cd ~/Projects/my-work-in-progress-project
+# cd ~/projects/my-work-in-progress-project
 ~/tools/claude-pod/claude-pod claude --dangerously-skip-permissions
 ```
 
 Docker is the only requirement. The install path (`~/tools/claude-pod`) is just a convention — put it wherever you want.
 
-## Requirements & platforms
+## Requirements
 
-**Just Docker.** Claude Code runs inside the container, not on your host — you do **not** need Node.js, npm, or the `claude` CLI installed on your machine. The host stays untouched apart from one state folder (`~/.claude-pod/`) that exists only to keep your login across container restarts.
+**Just Docker.** 
+
+Claude Code runs inside the container, not on your host — you do not need Node.js, npm, or the `claude` CLI installed on your machine. The host stays untouched apart from one state folder (`~/.claude-pod/`) that exists only to keep your login across container restarts.
+
+## Platforms
 
 The wrapper is portable POSIX bash + Docker. It should work on any host with a recent Docker:
 
