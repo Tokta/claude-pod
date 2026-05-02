@@ -27,7 +27,8 @@ info "Building image '$IMAGE'"
 # Stream the build output dimmed and indented. `--progress=plain` disables BuildKit's animated
 # TUI (which can't be re-styled externally); the sed strips Docker's own ANSI codes so they don't
 # cancel our dim formatting; the while-read prefixes each line with dim + 2-space indent.
-docker build --progress=plain -t "$IMAGE" "$REPO_DIR" 2>&1 \
+# CACHEBUST=$(date +%s) forces Docker to skip cache for the Claude CLI npm installation step.
+docker build --progress=plain --build-arg CACHEBUST="$(date +%s)" -t "$IMAGE" "$REPO_DIR" 2>&1 \
   | sed $'s/\e\\[[0-9;]*m//g' \
   | while IFS= read -r line; do printf '%s  %s%s\n' "$DIM" "$line" "$RESET"; done
 ok "Image '$IMAGE' built"

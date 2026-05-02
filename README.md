@@ -29,6 +29,15 @@ cd ~/tools/claude-pod
 
 That builds the `claude-pod` Docker image. Nothing else is installed on your system. Move or rename the folder anytime — only the image tag matters at runtime.
 
+### Updating Claude Code
+
+The `install.sh` script is designed to bypass Docker's cache when fetching the Anthropic CLI. To update to the absolute latest version of Claude Code at any time, simply re-run the install script:
+
+```sh
+cd ~/tools/claude-pod
+./install.sh
+```
+
 ## Usage
 
 Call the script by full path from any project:
