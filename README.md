@@ -111,6 +111,10 @@ CLAUDE_CODE_VERSION=2.0.0 ./install.sh
 
 Pinned versions cache normally across rebuilds. The script prints the resolved version after each build, so you always know what you got.
 
+### Customizing the image
+
+The image is intentionally minimal: `node:24-slim` + `git` + `curl` + `less` + `jq` + `gh` + Claude Code. Nothing language-specific. Anything your projects need (Python, build tools, other toolchains) you add yourself — edit the `Dockerfile` and re-run `./install.sh`.
+
 ## What is and isn't isolated
 
 **Safe from Claude:**
@@ -133,10 +137,6 @@ Everywhere else Claude writes is either in the container's ephemeral filesystem 
 > **Hardlinks are different.** A hardlink is a second name for an existing inode on the same filesystem. If a file inside your project folder is hardlinked to a sensitive file elsewhere on the same filesystem (e.g., `~/.ssh/id_rsa`), the container *can* reach it through the hardlink — the bind-mount exposes the inode, not just the path. This requires the hardlink to already exist in the project folder, so it's a real concern only when you're inspecting code from an untrusted source. Treat unfamiliar projects with the same caution you'd apply to running their code directly: don't run `claude-pod` inside a folder you don't trust.
 
 The tradeoff: the worst case becomes "something bad happens to one project folder," which is recoverable from git, instead of "my entire home directory is exposed."
-
-## Customizing the image
-
-The image is intentionally minimal: `node:24-slim` + `git` + `curl` + `less` + `jq` + `gh` + Claude Code. Nothing language-specific. Anything your projects need (Python, build tools, other toolchains) you add yourself — edit the `Dockerfile` and re-run `./install.sh`.
 
 ## Side effects outside the project folder
 
