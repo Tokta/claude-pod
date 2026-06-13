@@ -18,6 +18,9 @@ ARG CLAUDE_CODE_VERSION=latest
 ARG CACHEBUST=1
 RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
 
+# Install pnpm via corepack (ships with Node; activating it avoids a separate npm install).
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
 # We DO NOT use `USER node` here. Instead, we pass `--user "$(id -u):$(id -g)"` dynamically
 # at runtime in the `claude-pod` script. This ensures perfect file permission alignment
 # between the host and the container, especially on Linux environments.
