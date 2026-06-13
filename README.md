@@ -4,6 +4,8 @@
 
 ![claude-pod](assets/cover.jpeg)
 
+> **Setting this up for a project or sharing with your team?** See **[INTEGRATION.md](INTEGRATION.md)** — a step-by-step guide covering the per-project launcher, exporting your host login into the pod (the in-container `/login` is broken), and the gotchas. Ready-to-copy scripts live in [`templates/`](templates/).
+
 ## TL;DR
 
 `claude-pod` runs Claude Code inside a Docker container that mounts the project folder you launch it from. Claude can read and edit that folder; the rest of your machine — home directory, SSH keys, other projects, host shell — isn't mounted, so the container can't see it.
