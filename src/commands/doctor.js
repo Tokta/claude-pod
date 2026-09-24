@@ -4,6 +4,8 @@ import { assertSafeRoot, findProjectRoot, isTrusted, loadConfig } from '../confi
 import { docker, imageStatus } from '../docker.js';
 import { readToken } from '../host.js';
 import { IMAGE, hostDir, projectStateDir, stateRoot, tokenPath } from '../paths.js';
+import { containerExists } from '../launch.js';
+import { listOrphans } from '../protect.js';
 import { kind } from '../safefs.js';
 import { bold, err, info, ok, warn } from '../ui.js';
 
@@ -56,6 +58,12 @@ export async function doctor(argv) {
     if (kind(path.join(stateRoot(), old)) !== 'missing') {
       warn(`${path.join(stateRoot(), old)} is state from the old shared layout (pods now use ${path.join(stateRoot(), 'pods')}/<project>); delete it when you no longer need the history`);
       break;
+    }
+  }
+
+  if (dockerUp) {
+    for (const rec of listOrphans(containerExists)) {
+      warn(`an interrupted run in ${rec.root} may have left files to quarantine (${rec.missing.join(', ')}); the next claude-pod launch there sweeps them`);
     }
   }
 

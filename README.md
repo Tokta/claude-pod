@@ -154,7 +154,7 @@ It doesn't refresh or rotate, so parallel pods can't log each other out — no s
 
 ## Running several pods
 
-Pods are independent: unique names (`claude-pod-<project>-<id>`), free ports, per-project state, and a token that doesn't rotate. `claude-pod ps` lists them; `claude-pod stop` stops the current project's pods (or `--all`, or by name). If a launcher is killed (even with `kill -9`), a small watchdog stops its pod within seconds and quarantines anything it planted.
+Pods are independent: unique names (`claude-pod-<project>-<id>`), free ports, per-project state, and a token that doesn't rotate. `claude-pod ps` lists them; `claude-pod stop` stops the current project's pods (or `--all`, or by name). If a launcher is killed (even with `kill -9`), a small watchdog stops its pod within seconds and quarantines anything it planted. If the watchdog is killed too (e.g. a harness that kills the whole session), the pod keeps running until you `claude-pod stop` it.
 
 Pods of the **same project** share its working tree and `.git`, so parallel agents committing in one repo can collide. Per-pod git worktrees are planned for v2.
 
@@ -197,7 +197,7 @@ Some project files are executed or loaded by tools on your host later. A pod mus
 | `.git/commondir` | redirects where git reads config and hooks | pod refuses to start if present; quarantined if created |
 | `.git` (in a non-git project) | a new repo with hooks | quarantined if created |
 
-"Quarantined" means renamed to `<name>.claude-pod-quarantine-<timestamp>` after the run, with a warning. This also happens when the launcher is killed or crashes (the watchdog does it), and after a power loss (the next launch in that project does it first), so a planted file is never mistaken for yours. If any of these paths is a symlink, or resolves outside the project, the pod doesn't start: something planted it.
+"Quarantined" means renamed to `<name>.claude-pod-quarantine-<timestamp>` after the run, with a warning. This also happens when the launcher is killed or crashes (the watchdog does it). If the watchdog can't run either (power loss, a harness that kills every process of the session), the next launch in that project does it before anything else — so until then the planted file is still there, and files you create yourself in that project in the meantime get quarantined too (renamed, never deleted). `claude-pod doctor` lists such interrupted runs. If any of these paths is a symlink, or resolves outside the project, the pod doesn't start: something planted it.
 
 Git inside the pod still works for commits (identity comes from your global `user.name`/`user.email`), but `git config` writes to the repo fail — use `git -c key=value …` for one-off settings.
 

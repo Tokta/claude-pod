@@ -92,7 +92,7 @@ const pendingFile = (name) => path.join(pendingDir(), `${name}.json`);
 
 export function recordPending(root, name, missing) {
   ensurePrivateDir(pendingDir());
-  writeFileAtomic(pendingFile(name), JSON.stringify({ root, name, missing }));
+  writeFileAtomic(pendingFile(name), JSON.stringify({ root, name, missing, createdAt: Date.now() }));
 }
 
 export function clearPending(name) {
@@ -111,14 +111,20 @@ export function sweepRecord(name) {
   clearPending(name);
 }
 
-// Sweeps every record for `root` whose pod isn't running (per `isRunning(name)`).
-export function sweepPending(root, isRunning) {
+// A record younger than this is never swept by another launch: its launcher may still be starting
+// the container, which `docker ps` can't see yet.
+const GRACE_MS = 2 * 60_000;
+
+// Records whose container is gone and whose launcher had time to start it: left by a launcher
+// (and watchdog) that died. `exists(name)` must return true when unsure.
+export function listOrphans(exists, root = null) {
   let names;
   try {
     names = fs.readdirSync(pendingDir()).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5));
   } catch {
-    return;
+    return [];
   }
+  const orphans = [];
   for (const name of names) {
     let rec;
     try {
@@ -126,8 +132,14 @@ export function sweepPending(root, isRunning) {
     } catch {
       continue;
     }
-    if (rec?.root !== root || isRunning(name)) continue;
-    sweepRecord(name);
+    if (root !== null && rec?.root !== root) continue;
+    if (!(Date.now() - (rec?.createdAt || 0) > GRACE_MS) || exists(name)) continue;
+    orphans.push(rec);
   }
+  return orphans;
 }
 
+// Sweeps this project's orphaned records (see listOrphans).
+export function sweepPending(root, exists) {
+  for (const rec of listOrphans(exists, root)) sweepRecord(rec.name);
+}

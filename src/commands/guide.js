@@ -4,6 +4,7 @@ import { assertSafeRoot, findProjectRoot, isTrusted, loadConfig } from '../confi
 import { allowedRunDirs, readToken } from '../host.js';
 import { recordedImageId } from '../docker.js';
 import { hostSettingsPath } from '../paths.js';
+import { clean } from '../ui.js';
 
 export const GUIDE_HELP = `Usage: claude-pod guide [--no-status]
 
@@ -28,7 +29,10 @@ without giving that sub-agent the rest of this machine.
        claude-pod run --model opus --prompt-file /abs/scratchpad/step-3.md --out /abs/scratchpad/step-3
 
    Run it from inside the project (any subfolder works; the project root is found upwards).
-3. When it finishes it prints \`exit=<code>\` and exits with that code. Then read:
+3. If claude-pod rejects the command itself (bad option, disallowed path, not in a project) it
+   fails at once with exit 1 or 2, the reason on stderr, and writes NO files — so check the
+   command's own exit status first. Otherwise it prints \`exit=<code>\` when done, exits with
+   that code, and you read:
        /abs/scratchpad/step-3.out    the sub-agent's answer (stdout)
        /abs/scratchpad/step-3.err    its stderr, and launcher errors
        /abs/scratchpad/step-3.exit   the exit code (written last; its presence = finished)
@@ -43,6 +47,9 @@ until the launcher exits, and is stopped automatically if the launcher is killed
 Several runs may go in parallel, but runs in the same project share its files and git repo.
 
 ## When it fails
+
+Launcher warnings (missing token, quarantined files) are on the command's stderr, not in .err;
+the sub-agent's own errors (e.g. "Not logged in", 401) are in .err.
 
 | You see (in .err or on stderr) | Meaning | Do this |
 |---|---|---|
@@ -63,8 +70,8 @@ Several runs may go in parallel, but runs in the same project share its files an
 - Cannot: see anything outside the project (home dir, SSH keys, other repos), push to git
   or use GitHub credentials (none are present), change .git/hooks, .git/config, .claude/,
   .mcp.json, .envrc, .vscode/, .idea/ (read-only). Files like these that it creates are
-  quarantined after the run. \`git config …\` fails; \`git commit\` works with the user's
-  global identity; use \`git -c key=value …\` for anything else.
+  quarantined after the run. \`git config\` on the repo fails (\`--global\` only affects the
+  pod); \`git commit\` works with the user's global identity; use \`git -c key=value …\`.
 - Detect the pod from inside with \`[ "$CLAUDE_POD" = 1 ]\`.
 
 ## Never
@@ -81,7 +88,9 @@ Other commands (for humans): \`claude-pod doctor\` (full check), \`claude-pod ps
 // Live status for the current folder, from host-side state only (no Docker calls, no writes).
 function status() {
   const lines = ['## Status here', ''];
-  const row = (okay, text) => lines.push(`- ${okay ? 'ok  ' : 'FAIL'} ${text}`);
+  // Rows can include text from files a pod wrote (config errors, paths): escape it so it can't
+  // add lines that look like more status rows or instructions.
+  const row = (okay, text) => lines.push(`- ${okay ? 'ok  ' : 'FAIL'} ${clean(text)}`);
   let found;
   try {
     found = findProjectRoot();
@@ -109,7 +118,7 @@ function status() {
   const image = !!recordedImageId();
   row(image, image ? 'image: built by claude-pod' : 'image: not built yet — user must run `claude-pod build`');
   try {
-    lines.push(`- ok   allowed --prompt-file/--out folders: ${allowedRunDirs().join(', ')} (more via "runDirs" in ${hostSettingsPath()})`);
+    row(true, `allowed --prompt-file/--out folders: ${allowedRunDirs().join(', ')} (more via "runDirs" in ${hostSettingsPath()})`);
   } catch (e) {
     row(false, e.message);
   }

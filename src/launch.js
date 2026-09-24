@@ -14,9 +14,20 @@ import {
   clearPending, protectedMounts, quarantineCreated, recordPending, snapshotMissing, sweepPending,
 } from './protect.js';
 import { ensurePrivateDir, isInside, kind, writeFileAtomic } from './safefs.js';
-import { CliError, bold, detail, info, warn } from './ui.js';
+import { CliError, bold, clean, detail, info, warn } from './ui.js';
 
 const WATCHDOG = path.join(path.dirname(fileURLToPath(import.meta.url)), 'watchdog.js');
+
+// Whether a container with this exact name exists in any state (created, running, exiting).
+// Errs on "yes" when Docker can't answer, so a live pod's record is never swept by mistake.
+export function containerExists(name) {
+  try {
+    const res = docker(['ps', '-a', '-q', '--filter', `name=^${name}$`]);
+    return res.status !== 0 || res.stdout.trim() !== '';
+  } catch {
+    return true;
+  }
+}
 
 export function podName(root) {
   const slug = path.basename(root).toLowerCase().replace(/[^a-z0-9_.-]+/g, '-').replace(/^[-.]+/, '').slice(0, 30) || 'project';
@@ -45,7 +56,7 @@ async function ensureTrusted(root, config) {
     });
   }
   warn(`${config.file} is new or has changed since you approved it. A pod can edit this file, so review it:`);
-  process.stderr.write(`\n${config.text.trimEnd()}\n\n`);
+  process.stderr.write(`\n${clean(config.text.trimEnd(), '\n\t')}\n\n`);
   if (!(await confirm('Trust this config for this project?'))) throw new CliError('Config not trusted; not starting the pod.');
   trust(root, config.hash);
 }
@@ -109,8 +120,7 @@ export async function launch({ mode, command, cwd = process.cwd(), usesClaude, p
   writeGitIdentity(stateDir);
   // Quarantine what earlier runs' pods planted if their launcher never got to (see protect.js),
   // before deciding what's protected: a leftover must not pass for a file of yours.
-  const isRunning = (n) => docker(['ps', '-q', '--filter', `name=^${n}$`]).stdout.trim() !== '';
-  sweepPending(root, isRunning);
+  sweepPending(root, containerExists);
   const { pinned, readOnly } = protectedMounts(root);
 
   const token = readToken();
@@ -159,7 +169,7 @@ export async function launch({ mode, command, cwd = process.cwd(), usesClaude, p
   });
 
   info(`claude-pod ${name}`);
-  detail(`project: ${root}${configPath ? '' : ' (no claude-pod.config.json)'}`);
+  detail(`project: ${clean(root)}${configPath ? '' : ' (no claude-pod.config.json)'}`);
   if (config.network) detail(`network: ${config.network}`);
   for (const { container, host } of ports) detail(`port ${container} → http://127.0.0.1:${host}`);
 
@@ -167,17 +177,18 @@ export async function launch({ mode, command, cwd = process.cwd(), usesClaude, p
   recordPending(root, name, missingBefore);
   const watchdog = spawn(process.execPath, [WATCHDOG, name, priv], { detached: true, stdio: ['pipe', 'ignore', 'ignore'] });
   watchdog.stdin.on('error', () => {});
+  watchdog.stdin.unref?.();
   watchdog.unref();
-
-  const child = spawn('docker', args, { stdio: io, env: process.env });
 
   // Forward signals to the docker client, whose sig-proxy passes them to the pod, and keep running
   // until docker exits. Signals may target the launcher alone (an agent harness killing its
   // child), so relying on the terminal's process-group delivery isn't enough.
-  const onSignal = (sig) => child.kill(sig);
+  let child;
+  const onSignal = (sig) => child?.kill(sig);
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, onSignal);
 
   try {
+    child = spawn('docker', args, { stdio: io, env: process.env });
     return await new Promise((resolve, reject) => {
       child.on('error', reject);
       child.on('exit', (code, signal) => resolve(code ?? 128 + (os.constants.signals[signal] || 0)));
