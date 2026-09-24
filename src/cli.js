@@ -3,6 +3,7 @@ import path from 'node:path';
 import { auth } from './commands/auth.js';
 import { build } from './commands/build.js';
 import { doctor } from './commands/doctor.js';
+import { guide } from './commands/guide.js';
 import { init } from './commands/init.js';
 import { ps, stop } from './commands/pods.js';
 import { run } from './commands/run.js';
@@ -15,6 +16,8 @@ import { CliError, err } from './ui.js';
 const HELP = `claude-pod — run Claude Code in a Docker sandbox scoped to one project folder.
 
 Usage: claude-pod [command] [args]
+
+AI agents: start with \`claude-pod guide\` — how to delegate a task, read results, handle errors.
 
 Pod commands (mount the current project and start a container):
   (none) | shell          bash shell in the pod
@@ -30,6 +33,7 @@ Setup & management:
   trust                   review and approve this project's (changed) config
   ps [--all]              list running pods
   stop [NAME...] [--all]  stop pods
+  guide                   briefing for AI agents + status of this project (read-only)
   doctor                  check Docker, image, login and project config
   uninstall [--yes]       remove the image and pod state
   --version | --help
@@ -60,6 +64,7 @@ const COMMANDS = {
   ps,
   stop,
   doctor,
+  guide,
   uninstall,
 };
 

@@ -68,18 +68,22 @@ plumbing, so one rule covers it. In the project's `.claude/settings.json`:
 ```json
 {
   "permissions": {
-    "allow": ["Bash(claude-pod run:*)"]
+    "allow": ["Bash(claude-pod run:*)", "Bash(claude-pod guide:*)"]
   }
 }
 ```
 
-Only `run`. Keep `claude-pod trust`, `auth`, `uninstall` and friends behind a prompt: an
+Only `run` and the read-only `guide`. Keep `claude-pod trust`, `auth`, `uninstall` and friends behind a prompt: an
 orchestrator that could approve configs itself would defeat the approval step.
 
-Then tell your agents how to call it — e.g. in `CLAUDE.md` or the orchestrating skill:
+Then point your agents at it — e.g. in `CLAUDE.md` or the orchestrating skill. `claude-pod guide`
+prints the full agent briefing (exact command form, how to read results, what each error means
+and whether to stop and ask you) plus a live status of the project, so a short pointer is enough:
 
 ```markdown
 ## Delegating to a sandboxed Claude
+
+Before delegating, run `claude-pod guide` once and follow it. In short:
 
 Run sub-agents with exactly this form — one command, absolute paths, no `cd`, no variables,
 no `$(…)`, no redirects:
@@ -123,7 +127,7 @@ If the project has the old `scripts/claude-pod.sh` / `scripts/claude-pod-auth.sh
    `claude-pod trust`.
 2. Delete both scripts, and any `pod` / `pod:auth` entries in `package.json`
    (or point them at `claude-pod` / `claude-pod auth`).
-3. Replace the old permission rules with `Bash(claude-pod run:*)` (step 2).
+3. Replace the old permission rules with `Bash(claude-pod run:*)` and `Bash(claude-pod guide:*)` (step 2).
 4. Update CLAUDE.md / skills that mention `./scripts/claude-pod.sh`.
 5. Once per machine: `claude setup-token` + `claude-pod auth` (replaces the Keychain export; it
    also deletes the old copied login from `~/.claude-pod`).

@@ -58,7 +58,8 @@ export async function init(argv) {
   info('Next steps');
   process.stderr.write(`  1. Fill in ports/env in ${CONFIG_FILE}, then ${bold('claude-pod trust')} to approve the edit.\n`);
   process.stderr.write(`  2. Let agents launch pods without prompts — add to .claude/settings.json:\n`);
-  process.stderr.write(`       "permissions": { "allow": ["Bash(claude-pod run:*)"] }\n`);
+  process.stderr.write(`       "permissions": { "allow": ["Bash(claude-pod run:*)", "Bash(claude-pod guide:*)"] }\n`);
+  process.stderr.write(`     and tell agents to start with ${bold('claude-pod guide')}.\n`);
   process.stderr.write(`  3. Headless runs: ${bold('claude-pod run --prompt-file /tmp/task.md --out /tmp/task')}\n`);
   return 0;
 }

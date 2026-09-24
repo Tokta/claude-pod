@@ -63,6 +63,7 @@ claude-pod doctor                     # checks everything
 | `claude-pod init` | create (and trust) `claude-pod.config.json` for the current project |
 | `claude-pod trust` | review and approve a new or changed `claude-pod.config.json` |
 | `claude-pod ps [--all]` / `claude-pod stop [NAME…] [--all]` | list / stop running pods |
+| `claude-pod guide` | briefing for AI agents (how to delegate, read results, handle errors) + status of this project; read-only |
 | `claude-pod doctor` | check Docker, image, login and project config |
 | `claude-pod uninstall [--yes]` | remove the image and all claude-pod state |
 
@@ -142,9 +143,14 @@ claude setup-token     # on the host; opens the browser, prints a token (needs a
 claude-pod auth        # paste it (hidden input), or: claude-pod auth < token.txt
 ```
 
-The token is stored in `~/.config/claude-pod/oauth-token` (mode 0600, a folder no pod can see) and handed to each pod as `CLAUDE_CODE_OAUTH_TOKEN` through a private env-file. It doesn't refresh or rotate, so parallel pods can't log each other out — no shared credentials file, no refresh races.
+This is a login for **your Claude subscription** (Pro/Max), the same plan you use on the host: usage counts against your plan's limits, and nothing is billed as API usage. It's an OAuth token (`sk-ant-oat…`), not an API key (`sk-ant-api…`).
 
-**A pod can read the token** (it has to, to call the API) and could exfiltrate it — treat it like a password that lets someone use Claude on your subscription. If you suspect a pod misbehaved, create a new one with `claude setup-token`, run `claude-pod auth`, and revoke the old one from your Claude account settings if your plan offers that.
+Where it lives and who can see it:
+
+- **The token file** is `~/.config/claude-pod/oauth-token` (mode 0600), in a folder that is never mounted into any pod. A pod can't read, change or replace that file.
+- **The token itself** is handed to each pod as the `CLAUDE_CODE_OAUTH_TOKEN` environment variable (through a private env-file, not the command line), because Claude inside the pod needs it to log in. So **anything running in the pod can read it** (`echo $CLAUDE_CODE_OAUTH_TOKEN`) and, with the network open, send it elsewhere — treat it like a password to your Claude plan. If you suspect a pod misbehaved, create a new one with `claude setup-token` and run `claude-pod auth`.
+
+It doesn't refresh or rotate, so parallel pods can't log each other out — no shared credentials file, no refresh races.
 
 ## Running several pods
 
@@ -206,7 +212,7 @@ Git inside the pod still works for commits (identity comes from your global `use
 
 ### What you shouldn't allow an orchestrator
 
-Auto-approve only `Bash(claude-pod run:*)`. `claude-pod trust`, `auth`, `uninstall`, `stop` and plain `claude-pod` should stay behind a prompt: `trust` deliberately needs a terminal, and there's no `--yes`.
+Auto-approve only `Bash(claude-pod run:*)` and the read-only `Bash(claude-pod guide:*)`. `claude-pod trust`, `auth`, `uninstall`, `stop` and plain `claude-pod` should stay behind a prompt: `trust` deliberately needs a terminal, and there's no `--yes`.
 
 ### Environment overrides
 

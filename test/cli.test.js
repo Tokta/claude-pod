@@ -140,6 +140,21 @@ test('auth: stores the token host-only (0600) and removes the legacy copied logi
   assert.equal((await cli(['auth'], { cwd: s.project, env: s.env, input: 'bad token\n' })).code, 1);
 });
 
+test('guide: agent briefing plus live status, and writes nothing', async () => {
+  const s = sandbox();
+  fs.rmSync(s.hostDir, { recursive: true });
+  fs.writeFileSync(path.join(s.project, 'claude-pod.config.json'), '{}');
+  const res = await cli(['guide'], { cwd: s.project, env: s.env });
+  assert.equal(res.code, 0, res.stderr);
+  assert.match(res.stdout, /claude-pod run --model opus --prompt-file/);
+  assert.match(res.stdout, /Never run `claude-pod trust`/);
+  assert.match(res.stdout, /FAIL config: new or changed/);
+  assert.match(res.stdout, /FAIL login token: missing/);
+  assert.ok(!fs.existsSync(s.hostDir), 'guide created no state');
+  assert.ok(!fs.existsSync(path.join(s.home, '.claude-pod')));
+  assert.doesNotMatch((await cli(['guide', '--no-status'], { cwd: s.project, env: s.env })).stdout, /Status here/);
+});
+
 test('usage errors', async () => {
   const s = ready();
   assert.equal((await cli(['nope'], { cwd: s.project, env: s.env })).code, 1);

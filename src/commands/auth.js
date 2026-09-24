@@ -9,15 +9,15 @@ import { CliError, bold, detail, ok, warn } from '../ui.js';
 
 export const AUTH_HELP = `Usage: claude-pod auth [--from-env] [--remove]
 
-Stores the login token the pods use. Create one on the host (browser login, needs a Claude
-subscription) with:
+Stores the login the pods use: a long-lived token for your Claude subscription (Pro/Max usage,
+not API billing). Create one on the host (opens the browser) with:
 
   claude setup-token
 
 then run \`claude-pod auth\` and paste it (or pipe it in: \`claude-pod auth < file\`).
-The token is kept in ~/.config/claude-pod/oauth-token (0600), a folder no pod can see, and
-handed to each pod as CLAUDE_CODE_OAUTH_TOKEN. It's long-lived and never rotates, so parallel
-pods can't log each other out.
+The token file is kept in ~/.config/claude-pod/oauth-token (0600), a folder no pod can see. The
+token value is handed to each pod as CLAUDE_CODE_OAUTH_TOKEN, so code inside a pod CAN read it.
+It never rotates, so parallel pods can't log each other out.
 
 Options:
   --from-env   read the token from $CLAUDE_CODE_OAUTH_TOKEN
