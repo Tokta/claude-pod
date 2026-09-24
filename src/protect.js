@@ -8,7 +8,8 @@
 //     pod creates one it is renamed to `<name>.claude-pod-quarantine-<timestamp>` after the run.
 import fs from 'node:fs';
 import path from 'node:path';
-import { isInside, kind } from './safefs.js';
+import { pendingDir } from './paths.js';
+import { ensurePrivateDir, isInside, kind, readRegularFile, writeFileAtomic } from './safefs.js';
 import { CliError, warn } from './ui.js';
 
 const LOCKED = [
@@ -80,3 +81,53 @@ export function quarantineCreated(root, missingBefore) {
   }
   return moved;
 }
+
+// ── Crash-safe quarantine ─────────────────────────────────────────────────────────────────────
+// The launcher quarantines when its pod exits. If the launcher itself dies first (kill -9, crash,
+// power loss), that step never runs — so each run also records what was missing at its start in
+// host-only state. The watchdog, and every later launch in the same project, sweep records whose
+// pod is no longer running, before anything could treat a pod-made file as the user's.
+
+const pendingFile = (name) => path.join(pendingDir(), `${name}.json`);
+
+export function recordPending(root, name, missing) {
+  ensurePrivateDir(pendingDir());
+  writeFileAtomic(pendingFile(name), JSON.stringify({ root, name, missing }));
+}
+
+export function clearPending(name) {
+  fs.rmSync(pendingFile(name), { force: true });
+}
+
+// Quarantines for one record and deletes it. Used by the watchdog after it stopped the pod.
+export function sweepRecord(name) {
+  let rec;
+  try {
+    rec = JSON.parse(readRegularFile(pendingFile(name))?.toString('utf8') || 'null');
+  } catch {
+    return;
+  }
+  if (rec && Array.isArray(rec.missing) && typeof rec.root === 'string') quarantineCreated(rec.root, rec.missing.filter((r) => WATCHED.includes(r)));
+  clearPending(name);
+}
+
+// Sweeps every record for `root` whose pod isn't running (per `isRunning(name)`).
+export function sweepPending(root, isRunning) {
+  let names;
+  try {
+    names = fs.readdirSync(pendingDir()).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5));
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    let rec;
+    try {
+      rec = JSON.parse(readRegularFile(pendingFile(name)).toString('utf8'));
+    } catch {
+      continue;
+    }
+    if (rec?.root !== root || isRunning(name)) continue;
+    sweepRecord(name);
+  }
+}
+

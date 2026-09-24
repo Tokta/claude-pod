@@ -31,6 +31,7 @@ export const trustDir = () => path.join(hostDir(), 'trust');
 export const imageIdPath = () => path.join(hostDir(), 'image-id');
 export const hostSettingsPath = () => path.join(hostDir(), 'settings.json');
 export const runDir = () => path.join(hostDir(), 'run');
+export const pendingDir = () => path.join(hostDir(), 'pending');
 
 export const stateRoot = () => path.join(os.homedir(), '.claude-pod');
 export const podsDir = () => path.join(stateRoot(), 'pods');

@@ -5,12 +5,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { assertSafeRoot, findProjectRoot, isTrusted, loadConfig, trust, validateResources } from './config.js';
-import { assertNetwork, buildRunArgs, preflight } from './docker.js';
+import { assertNetwork, buildRunArgs, docker, preflight } from './docker.js';
 import { readToken } from './host.js';
 import { podsDir, projectStateDir, runDir, stateRoot } from './paths.js';
 import { allocatePorts } from './ports.js';
 import { canPrompt, confirm } from './prompt.js';
-import { protectedMounts, quarantineCreated, snapshotMissing } from './protect.js';
+import {
+  clearPending, protectedMounts, quarantineCreated, recordPending, snapshotMissing, sweepPending,
+} from './protect.js';
 import { ensurePrivateDir, isInside, kind, writeFileAtomic } from './safefs.js';
 import { CliError, bold, detail, info, warn } from './ui.js';
 
@@ -105,6 +107,10 @@ export async function launch({ mode, command, cwd = process.cwd(), usesClaude, p
 
   const stateDir = ensureProjectState(root);
   writeGitIdentity(stateDir);
+  // Quarantine what earlier runs' pods planted if their launcher never got to (see protect.js),
+  // before deciding what's protected: a leftover must not pass for a file of yours.
+  const isRunning = (n) => docker(['ps', '-q', '--filter', `name=^${n}$`]).stdout.trim() !== '';
+  sweepPending(root, isRunning);
   const { pinned, readOnly } = protectedMounts(root);
 
   const token = readToken();
@@ -158,7 +164,9 @@ export async function launch({ mode, command, cwd = process.cwd(), usesClaude, p
   for (const { container, host } of ports) detail(`port ${container} → http://127.0.0.1:${host}`);
 
   const missingBefore = snapshotMissing(root);
-  const watchdog = spawn(process.execPath, [WATCHDOG, String(process.pid), name, priv], { detached: true, stdio: 'ignore' });
+  recordPending(root, name, missingBefore);
+  const watchdog = spawn(process.execPath, [WATCHDOG, name, priv], { detached: true, stdio: ['pipe', 'ignore', 'ignore'] });
+  watchdog.stdin.on('error', () => {});
   watchdog.unref();
 
   const child = spawn('docker', args, { stdio: io, env: process.env });
@@ -178,7 +186,8 @@ export async function launch({ mode, command, cwd = process.cwd(), usesClaude, p
     for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.removeListener(sig, onSignal);
     if (typeof io[0] === 'number' && stdinText !== null) fs.closeSync(io[0]);
     fs.rmSync(priv, { recursive: true, force: true });
-    watchdog.kill('SIGTERM');
+    watchdog.stdin.end('done');
     quarantineCreated(root, missingBefore);
+    clearPending(name);
   }
 }

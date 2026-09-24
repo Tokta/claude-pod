@@ -115,8 +115,10 @@ export async function run(argv) {
   } finally {
     fs.closeSync(outFd);
     fs.closeSync(errFd);
-    if (code !== undefined) writeFileAtomic(`${base}.exit`, `${code}\n`, 0o644);
+    if (code !== undefined) {
+      writeFileAtomic(`${base}.exit`, `${code}\n`, 0o644);
+      process.stdout.write(`exit=${code}\n`); // also when the launcher itself failed
+    }
   }
-  process.stdout.write(`exit=${code}\n`);
   return code;
 }

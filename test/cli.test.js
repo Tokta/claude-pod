@@ -57,9 +57,8 @@ test('run refuses --out inside the project and --prompt-file outside allowed dir
   assert.equal(inProject.code, 1);
   assert.match(inProject.stderr, /inside the project/);
 
-  // Pretend the sandbox isn't a temp dir: only runDirs make it allowed. /tmp is always allowed,
-  // so point at a file under the package dir instead.
-  const outside = await cli(['run', '--prompt-file', path.resolve('package.json')], { cwd: s.project, env: s.env });
+  // /etc/hosts exists on macOS and Linux and is never in an allowed folder.
+  const outside = await cli(['run', '--prompt-file', '/etc/hosts'], { cwd: s.project, env: s.env });
   assert.equal(outside.code, 1);
   assert.match(outside.stderr, /outside the allowed folders/);
   assert.equal(s.runs().length, 0);
@@ -89,6 +88,33 @@ test('config: untrusted is refused unattended; trusted env reaches the pod via e
   // Any edit — by you or a pod — needs approving again.
   fs.appendFileSync(path.join(s.project, 'claude-pod.config.json'), ' ');
   assert.equal((await cli(['exec', 'true'], { cwd: s.project, env: s.env })).code, 1);
+});
+
+test('run --out prints exit= even when the launcher fails', async () => {
+  const s = ready();
+  fs.writeFileSync(path.join(s.project, 'claude-pod.config.json'), '{}'); // untrusted
+  const out = path.join(s.dir, 'o');
+  const res = await cli(['run', '--prompt', 'x', '--out', out], { cwd: s.project, env: s.env });
+  assert.equal(res.code, 1);
+  assert.equal(res.stdout, 'exit=1\n');
+  assert.equal(fs.readFileSync(`${out}.exit`, 'utf8'), '1\n');
+  assert.match(fs.readFileSync(`${out}.err`, 'utf8'), /changed since you approved it/);
+});
+
+test('files left by a pod whose launcher died are quarantined on the next launch', async () => {
+  const s = ready();
+  // What a killed launcher leaves behind: its record, and the file its pod planted.
+  const pending = path.join(s.hostDir, 'pending');
+  fs.mkdirSync(pending, { recursive: true });
+  fs.writeFileSync(path.join(pending, 'claude-pod-app-dead01.json'), JSON.stringify({ root: s.project, name: 'claude-pod-app-dead01', missing: ['.mcp.json', '.envrc'] }));
+  fs.writeFileSync(path.join(s.project, '.mcp.json'), '{"planted":true}');
+
+  const res = await cli(['exec', 'true'], { cwd: s.project, env: s.env });
+  assert.equal(res.code, 0, res.stderr);
+  assert.match(res.stderr, /created \.mcp\.json.*Quarantined/);
+  assert.ok(!fs.existsSync(path.join(s.project, '.mcp.json')));
+  assert.ok(!s.runs()[0].args.some((a) => a.includes('.mcp.json')), 'not mounted as if it were yours');
+  assert.deepEqual(fs.readdirSync(pending), [], 'records cleared');
 });
 
 test('non-bridge networks are refused', async () => {
