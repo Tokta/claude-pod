@@ -6,6 +6,7 @@ import { doctor } from './commands/doctor.js';
 import { init } from './commands/init.js';
 import { ps, stop } from './commands/pods.js';
 import { run } from './commands/run.js';
+import { trustCommand } from './commands/trust.js';
 import { uninstall } from './commands/uninstall.js';
 import { launch } from './launch.js';
 import { PKG_DIR } from './paths.js';
@@ -24,18 +25,19 @@ Pod commands (mount the current project and start a container):
 
 Setup & management:
   build                   build the image (once, and to update Claude Code)
-  auth [--force]          copy your host Claude login into the pod
+  auth                    store the login token from \`claude setup-token\`
   init                    create claude-pod.config.json for this project
+  trust                   review and approve this project's (changed) config
   ps [--all]              list running pods
   stop [NAME...] [--all]  stop pods
   doctor                  check Docker, image, login and project config
   uninstall [--yes]       remove the image and pod state
   --version | --help
 
-The project root is the nearest folder (upwards) with claude-pod.config.json, else the git root,
-else the current folder. Pods get CLAUDE_POD=1 and, per published port, CLAUDE_POD_PORT_<n>.
+The project root is the nearest folder (upwards) with claude-pod.config.json, else the git root.
+Pods get CLAUDE_POD=1 and, per published port, CLAUDE_POD_PORT_<n>.
 
-Env overrides: NET=none (no network), PIDS, MEMORY, CPUS.`;
+Env overrides: NET=none (no network); PIDS, MEMORY, CPUS (resource caps).`;
 
 const version = () => JSON.parse(fs.readFileSync(path.join(PKG_DIR, 'package.json'), 'utf8')).version;
 
@@ -54,6 +56,7 @@ const COMMANDS = {
   build,
   auth,
   init,
+  trust: trustCommand,
   ps,
   stop,
   doctor,

@@ -2,12 +2,13 @@ import fs from 'node:fs';
 import readline from 'node:readline/promises';
 import { parseArgs } from 'node:util';
 import { docker } from '../docker.js';
-import { IMAGE, podDir } from '../paths.js';
+import { IMAGE, hostDir, stateRoot } from '../paths.js';
 import { CliError, bold, detail, info, ok } from '../ui.js';
 
 export const UNINSTALL_HELP = `Usage: claude-pod uninstall [--yes]
 
-Removes the '${IMAGE}' image and the pod state dir (login + session history).
+Removes the '${IMAGE}' image, the pods' state (~/.claude-pod: session history) and the host-only
+state (~/.config/claude-pod: login token, trusted configs).
 Does not remove the claude-pod command itself: run \`npm uninstall -g claude-pod\` for that.`;
 
 export async function uninstall(argv) {
@@ -16,10 +17,11 @@ export async function uninstall(argv) {
     process.stdout.write(`${UNINSTALL_HELP}\n`);
     return 0;
   }
-  const dir = podDir();
+  const dirs = [stateRoot(), hostDir()];
   info('Will remove');
   detail(`image: ${IMAGE}`);
-  detail(`dir:   ${dir} (pod login + session history)`);
+  detail(`dir:   ${dirs[0]} (pod session history)`);
+  detail(`dir:   ${dirs[1]} (login token, trusted configs)`);
 
   if (!values.yes) {
     if (!process.stdin.isTTY) throw new CliError('Refusing to uninstall without confirmation.', { hint: 'Pass --yes.' });
@@ -39,11 +41,13 @@ export async function uninstall(argv) {
   } else {
     ok(`Image '${IMAGE}' was not present`);
   }
-  if (fs.existsSync(dir)) {
-    fs.rmSync(dir, { recursive: true, force: true });
-    ok(`Removed ${dir}`);
-  } else {
-    ok(`${dir} was not present`);
+  for (const dir of dirs) {
+    if (fs.existsSync(dir)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+      ok(`Removed ${dir}`);
+    } else {
+      ok(`${dir} was not present`);
+    }
   }
   process.stderr.write(`  To remove the command too: ${bold('npm uninstall -g claude-pod')}\n`);
   return 0;

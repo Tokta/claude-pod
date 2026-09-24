@@ -1,14 +1,15 @@
-import fs from 'node:fs';
+import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { assertSafeRoot, findProjectRoot, loadConfig } from '../config.js';
-import { isFresh, readExpiresAt } from '../creds.js';
+import { assertSafeRoot, findProjectRoot, isTrusted, loadConfig } from '../config.js';
 import { docker, imageStatus } from '../docker.js';
-import { IMAGE, podDir, refreshLockPath } from '../paths.js';
+import { readToken } from '../host.js';
+import { IMAGE, hostDir, projectStateDir, stateRoot, tokenPath } from '../paths.js';
+import { kind } from '../safefs.js';
 import { bold, err, info, ok, warn } from '../ui.js';
 
 export const DOCTOR_HELP = `Usage: claude-pod doctor
 
-Checks Docker, the image, the pod login and the current project's config.`;
+Checks Docker, the image, the login token and the current project's config.`;
 
 export async function doctor(argv) {
   const { values } = parseArgs({ args: argv, options: { help: { type: 'boolean', short: 'h' } } });
@@ -29,8 +30,7 @@ export async function doctor(argv) {
 
   let dockerUp = false;
   try {
-    const v = docker(['--version']);
-    ok(v.stdout.trim());
+    ok(docker(['--version']).stdout.trim());
     dockerUp = docker(['info'], { stdio: 'ignore' }).status === 0;
     if (dockerUp) ok('Docker daemon running');
     else fail('Docker daemon is not running');
@@ -40,35 +40,42 @@ export async function doctor(argv) {
   if (dockerUp) {
     const img = imageStatus();
     if (!img.exists) fail(`image '${IMAGE}' not built — run ${bold('claude-pod build')}`);
+    else if (img.replaced) fail(`image '${IMAGE}' is not the one claude-pod built — run ${bold('claude-pod build')}`);
+    else if (!img.recorded) warn(`image '${IMAGE}' predates this version — run ${bold('claude-pod build')}`);
     else if (img.stale) warn(`image '${IMAGE}' was built from a different Dockerfile — run ${bold('claude-pod build')}`);
     else ok(`image '${IMAGE}' up to date`);
   }
 
   info('Login');
-  const dir = podDir();
-  if (fs.existsSync(dir)) {
-    const mode = fs.statSync(dir).mode & 0o777;
-    if (mode === 0o700) ok(`${dir} (0700)`);
-    else warn(`${dir} is ${mode.toString(8)}; the next launch resets it to 700`);
+  if (readToken()) ok(`token stored in ${tokenPath()}`);
+  else fail(`no login token — run ${bold('claude setup-token')} on the host, then ${bold('claude-pod auth')}`);
+  if (kind(hostDir()) === 'dir') ok(`${hostDir()} (host-only, never mounted)`);
+  const legacy = path.join(stateRoot(), '.credentials.json');
+  if (kind(legacy) !== 'missing') warn(`${legacy} is an old copied login (with a refresh token) that is no longer used — delete it, or run ${bold('claude-pod auth')}`);
+  for (const old of ['projects', 'settings.json', '.claude.json']) {
+    if (kind(path.join(stateRoot(), old)) !== 'missing') {
+      warn(`${path.join(stateRoot(), old)} is state from the old shared layout (pods now use ${path.join(stateRoot(), 'pods')}/<project>); delete it when you no longer need the history`);
+      break;
+    }
   }
-  const exp = readExpiresAt();
-  if (exp === null) fail(`no pod credentials — run ${bold('claude-pod auth')}`);
-  else if (isFresh(exp)) ok(`access token valid until ${new Date(exp).toISOString()}`);
-  else ok(`access token expired ${exp ? new Date(exp).toISOString() : '(unknown)'} — the next pod refreshes it`);
-  if (fs.existsSync(refreshLockPath())) warn(`credential lock held: ${refreshLockPath()} (a pod is refreshing the login)`);
 
   info('Project');
   try {
     const found = findProjectRoot();
     assertSafeRoot(found.root);
     ok(`root: ${found.root}`);
+    ok(`pod state: ${projectStateDir(found.root)}`);
     const config = loadConfig(found);
-    if (!found.configPath) ok('no claude-pod.config.json (defaults: no network, no ports, no extra env)');
+    if (!found.configPath) ok('no claude-pod.config.json (defaults: default network, no ports, no extra env)');
     else {
       ok(`config: ${found.configPath}`);
+      if (isTrusted(found.root, config.hash)) ok('config trusted');
+      else fail(`config is new or changed since you approved it — review it, then ${bold('claude-pod trust')}`);
       if (config.network && config.network !== 'none' && dockerUp) {
-        if (docker(['network', 'inspect', config.network], { stdio: 'ignore' }).status === 0) ok(`network ${config.network} exists`);
-        else fail(`network ${config.network} not found — start your stack (docker compose up -d)`);
+        const res = docker(['network', 'inspect', '--format', '{{.Driver}}', config.network]);
+        if (res.status !== 0) fail(`network ${config.network} not found — start your stack (docker compose up -d)`);
+        else if (res.stdout.trim() !== 'bridge') fail(`network ${config.network} uses the '${res.stdout.trim()}' driver; only bridge is allowed`);
+        else ok(`network ${config.network} exists (bridge)`);
       }
       if (config.ports.length) ok(`ports: ${config.ports.join(', ')} (published on free host ports)`);
       if (Object.keys(config.env).length) ok(`env: ${Object.keys(config.env).join(', ')}`);

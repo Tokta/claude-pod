@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process';
 import readline from 'node:readline';
 import { parseArgs } from 'node:util';
-import { docker, dockerfileHash } from '../docker.js';
-import { IMAGE, LABEL_DOCKERFILE, PKG_DIR, dockerBin } from '../paths.js';
+import { docker, dockerfileHash, imageId } from '../docker.js';
+import { IMAGE, LABEL_DOCKERFILE, PKG_DIR, hostDir, imageIdPath } from '../paths.js';
+import { ensurePrivateDir, writeFileAtomic } from '../safefs.js';
 import { CliError, bold, detail, info, ok } from '../ui.js';
 
 export const BUILD_HELP = `Usage: claude-pod build [--claude-version X.Y.Z]
@@ -37,7 +38,7 @@ export async function build(argv) {
 
   info(`Building image '${IMAGE}' (claude-code ${version})`);
   const code = await new Promise((resolve, reject) => {
-    const child = spawn(dockerBin(), args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn('docker', args, { stdio: ['ignore', 'pipe', 'pipe'] });
     // Dim + indent the build log; strip docker's own ANSI codes so they don't fight the dimming.
     for (const stream of [child.stdout, child.stderr]) {
       readline.createInterface({ input: stream }).on('line', (line) => detail(line.replace(/\x1b\[[0-9;]*m/g, '')));
@@ -46,13 +47,16 @@ export async function build(argv) {
     child.on('close', (c) => resolve(c ?? 1));
   });
   if (code !== 0) throw new CliError(`docker build failed (exit ${code}).`);
+  // Record the exact image ID: launches refuse a 'claude-pod' tag that points anywhere else.
+  ensurePrivateDir(hostDir());
+  writeFileAtomic(imageIdPath(), `${imageId()}\n`);
   ok(`Image '${IMAGE}' built`);
 
   const v = docker(['run', '--rm', IMAGE, 'claude', '--version']);
   if (v.status === 0) detail(`claude-code: ${v.stdout.trim()}`);
 
   info('Next steps');
-  process.stderr.write(`  ${bold('claude-pod auth')}      copy your host login into the pod (once)\n`);
+  process.stderr.write(`  ${bold('claude setup-token')}  on the host, then ${bold('claude-pod auth')} to store the token (once)\n`);
   process.stderr.write(`  ${bold('claude-pod init')}      add a claude-pod.config.json to a project (optional)\n`);
   process.stderr.write(`  ${bold('claude-pod')}           shell in the pod for the current project\n`);
   return 0;

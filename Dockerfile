@@ -19,13 +19,16 @@ ARG CACHEBUST=1
 RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
 
 # Install pnpm via corepack (ships with Node; activating it avoids a separate npm install).
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# Pinned so a rebuild never silently pulls a different package manager into the sandbox.
+ARG PNPM_VERSION=12.6.0
+RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate
 
 # We DO NOT use `USER node` here. Instead, we pass `--user "$(id -u):$(id -g)"` dynamically
 # at runtime (see buildRunArgs in src/docker.js). This ensures perfect file permission alignment
 # between the host and the container, especially on Linux environments.
-# Create a dedicated, globally writable home directory for our dynamic runtime user.
-RUN mkdir -p /home/claude-pod && chmod 777 /home/claude-pod
+# Create a dedicated, globally writable home directory for our dynamic runtime user (sticky bit,
+# like /tmp: any uid can create entries, only the owner can remove them).
+RUN mkdir -p /home/claude-pod && chmod 1777 /home/claude-pod
 
 # Override the default bash prompt to hide the "I have no name!" warning for dynamic users.
 RUN echo 'PS1="claude-pod:\w\$ "' >> /etc/bash.bashrc

@@ -1,66 +1,40 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
-import { expiresAtOf } from '../creds.js';
-import { ensurePodDir } from '../launch.js';
-import { claudeJsonPath, credentialsPath } from '../paths.js';
+import { readToken, saveToken, validateToken } from '../host.js';
+import { stateRoot, tokenPath } from '../paths.js';
+import { canPrompt, readSecret } from '../prompt.js';
+import { kind } from '../safefs.js';
 import { CliError, bold, detail, ok, warn } from '../ui.js';
 
-export const AUTH_HELP = `Usage: claude-pod auth [--force] [--from FILE]
+export const AUTH_HELP = `Usage: claude-pod auth [--from-env] [--remove]
 
-Copies your host Claude Code login into the pod (~/.claude-pod/.credentials.json).
-The in-pod /login browser flow doesn't work (the OAuth redirect is rejected), so the pod
-reuses the host session instead. Also marks onboarding as done so the pod skips the wizard.
+Stores the login token the pods use. Create one on the host (browser login, needs a Claude
+subscription) with:
 
-Source: the macOS Keychain on macOS, ~/.claude/.credentials.json elsewhere, or --from FILE.
+  claude setup-token
+
+then run \`claude-pod auth\` and paste it (or pipe it in: \`claude-pod auth < file\`).
+The token is kept in ~/.config/claude-pod/oauth-token (0600), a folder no pod can see, and
+handed to each pod as CLAUDE_CODE_OAUTH_TOKEN. It's long-lived and never rotates, so parallel
+pods can't log each other out.
 
 Options:
-  --force      overwrite even if the pod holds a newer token. Only right after a fresh host
-               /login — re-exporting an older token is what causes 401s.
-  --from FILE  read the credentials JSON from FILE`;
+  --from-env   read the token from $CLAUDE_CODE_OAUTH_TOKEN
+  --remove     delete the stored token`;
 
-const KEYCHAIN_SERVICE = 'Claude Code-credentials';
-
-function readHostCredentials(from) {
-  if (from) {
-    try {
-      return { json: fs.readFileSync(from, 'utf8'), source: from };
-    } catch (e) {
-      throw new CliError(`Cannot read ${from}: ${e.code || e.message}`);
-    }
-  }
-  if (process.platform === 'darwin') {
-    const res = spawnSync('security', ['find-generic-password', '-s', KEYCHAIN_SERVICE, '-w'], { encoding: 'utf8' });
-    if (res.error || res.status !== 0 || !res.stdout.trim()) {
-      throw new CliError(`No '${KEYCHAIN_SERVICE}' entry in the Keychain.`, { hint: 'Log in to Claude Code on the host first.' });
-    }
-    return { json: res.stdout.trim(), source: 'macOS Keychain' };
-  }
-  const file = path.join(process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), '.credentials.json');
-  try {
-    return { json: fs.readFileSync(file, 'utf8'), source: file };
-  } catch {
-    throw new CliError(`No host credentials at ${file}.`, { hint: 'Log in to Claude Code on the host first, or pass --from FILE.' });
-  }
-}
-
-// Writes via a temp file + rename so the pod never sees a half-written token, and with 0600 from
-// the start so the token is never briefly world-readable.
-function writePrivate(file, content) {
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, content, { mode: 0o600 });
-  fs.renameSync(tmp, file);
-  fs.chmodSync(file, 0o600);
+async function readAll(stream) {
+  let s = '';
+  for await (const chunk of stream) s += chunk;
+  return s;
 }
 
 export async function auth(argv) {
   const { values } = parseArgs({
     args: argv,
     options: {
-      force: { type: 'boolean', default: false },
-      from: { type: 'string' },
+      'from-env': { type: 'boolean' },
+      remove: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
   });
@@ -68,48 +42,36 @@ export async function auth(argv) {
     process.stdout.write(`${AUTH_HELP}\n`);
     return 0;
   }
-
-  const { json, source } = readHostCredentials(values.from);
-  let parsed;
-  try {
-    parsed = JSON.parse(json);
-  } catch {
-    throw new CliError(`Credentials from ${source} are not valid JSON.`);
-  }
-  if (!parsed?.claudeAiOauth?.refreshToken) {
-    throw new CliError(`Credentials from ${source} have no claudeAiOauth.refreshToken.`);
+  if (values.remove) {
+    fs.rmSync(tokenPath(), { force: true });
+    ok('Login token removed.');
+    return 0;
   }
 
-  // Rotation guard: a running pod refreshes its token and rotates the refresh token server-side,
-  // which invalidates the host copy. Overwriting a newer pod token with that stale one breaks auth.
-  const dest = credentialsPath();
-  if (!values.force && fs.existsSync(dest)) {
-    const pod = expiresAtOf(fs.readFileSync(dest, 'utf8'));
-    if (pod > expiresAtOf(json)) {
-      warn("The pod already holds a newer token than the host's — not overwriting.");
-      warn('The pod refreshes itself; re-exporting an older host token is what causes 401s.');
-      throw new CliError('Nothing to do.', { hint: `If you just did a fresh host ${bold('/login')}, re-run with ${bold('--force')}.` });
-    }
+  let raw;
+  if (values['from-env']) {
+    raw = process.env.CLAUDE_CODE_OAUTH_TOKEN || '';
+    if (!raw) throw new CliError('$CLAUDE_CODE_OAUTH_TOKEN is not set.');
+  } else if (!process.stdin.isTTY) {
+    raw = await readAll(process.stdin);
+  } else if (canPrompt()) {
+    process.stderr.write(`Create a token on the host with ${bold('claude setup-token')}, then paste it here.\n`);
+    raw = await readSecret('Token: ');
+  } else {
+    throw new CliError('No token given.', { hint: 'Pipe it in, or pass --from-env.' });
   }
+  const token = validateToken(raw);
+  if (!token.startsWith('sk-ant-oat')) warn('This does not look like a `claude setup-token` token (sk-ant-oat…); storing it anyway.');
+  const had = readToken();
+  saveToken(token);
+  ok(`${had ? 'Replaced' : 'Stored'} the login token in ${bold(tokenPath())}`);
 
-  ensurePodDir();
-
-  // Skip the first-run wizard: its login-method picker would start the broken browser flow.
-  const cj = claudeJsonPath();
-  let state = {};
-  try {
-    state = JSON.parse(fs.readFileSync(cj, 'utf8') || '{}');
-  } catch {
-    // Unparseable: start over rather than fail.
+  // The pre-token design copied the host's OAuth login (with its refresh token) into a folder
+  // every pod could read. It's unused now; don't leave it lying around.
+  const legacy = path.join(stateRoot(), '.credentials.json');
+  if (kind(legacy) !== 'missing') {
+    fs.rmSync(legacy, { force: true });
+    detail(`removed the old copied login ${legacy} (no longer used)`);
   }
-  state.hasCompletedOnboarding = true;
-  if (!state.theme) state.theme = 'dark';
-  writePrivate(cj, JSON.stringify(state, null, 2));
-
-  writePrivate(dest, json);
-
-  const exp = expiresAtOf(json);
-  ok(`Pod credentials written to ${bold(dest)} (from ${source})`);
-  detail(`access token expires: ${exp ? new Date(exp).toISOString() : 'unknown'} (auto-refreshed by Claude in the pod)`);
   return 0;
 }
