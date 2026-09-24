@@ -1,123 +1,113 @@
 # Using claude-pod on a project
 
-A step-by-step guide to running Claude Code (or a shell) inside the **claude-pod** sandbox for one
-of your projects — including how to authenticate without the broken in-container browser login.
-
-The pod bind-mounts **only your project folder** (at its real path) plus its own auth dir, drops
-all Linux capabilities, and runs as your user. That tight blast radius is exactly why it's the
-right place to run Claude with `--dangerously-skip-permissions`: an autonomous agent can churn
-through a task without being able to touch the rest of your machine.
-
-> Two ready-to-use scripts live in [`templates/`](templates/):
-> - `claude-pod.sh` — per-project launcher (you copy + edit a small CONFIG block)
-> - `claude-pod-auth.sh` — exports your host login into the pod (used as-is)
+How to wire a project into claude-pod: services on a Docker network, ports, secrets, and letting
+agents launch pods without permission prompts. Assumes you've done the one-time setup from the
+[README](README.md#install) (`npm install -g`, `claude-pod build`, `claude-pod auth`).
 
 ---
 
-## Prerequisites
-
-1. **Docker Desktop** installed and running.
-2. **Build the image once:** clone this repo and run `./install.sh`. It builds the local
-   `claude-pod` image (Node + git + gh + Claude Code + pnpm). Re-run it to pick up new Claude
-   Code releases.
-3. **Be logged in to Claude Code on your host** (desktop app or `claude` CLI) — the pod reuses
-   that session.
-4. **macOS** for the auth helper (it reads the login Keychain). Linux hosts: see the note in
-   step 3.
-
----
-
-## 1. Add the two scripts to your project
-
-Copy both templates into your project's `scripts/` directory and make them executable:
+## 1. Create the project config
 
 ```bash
-mkdir -p scripts
-cp /path/to/claude-pod/templates/claude-pod.sh       scripts/claude-pod.sh
-cp /path/to/claude-pod/templates/claude-pod-auth.sh  scripts/claude-pod-auth.sh
-chmod +x scripts/claude-pod.sh scripts/claude-pod-auth.sh
+cd ~/projects/your-app
+claude-pod init
 ```
 
-If it's a Node project, add convenience scripts to `package.json` (optional):
+This writes `claude-pod.config.json` at the project root (the git root). It pre-fills `network`
+when it finds your Docker Compose network (`<folder>_default`) and `envFile` when there's a `.env`.
+Then fill in the rest:
 
 ```json
 {
-  "scripts": {
-    "pod": "bash scripts/claude-pod.sh",
-    "pod:auth": "bash scripts/claude-pod-auth.sh"
+  "network": "ops-olive_default",
+  "ports": [3000, 3131],
+  "envFile": ".env",
+  "env": {
+    "HOST": "0.0.0.0",
+    "DATABASE_URL": "postgresql://app_user:${APP_USER_PASSWORD}@postgres:5432/ops_olive_database",
+    "MIGRATION_DATABASE_URL": "postgresql://ops_olive:${POSTGRES_PASSWORD}@postgres:5432/ops_olive_database"
   }
 }
 ```
 
----
+- **`network`** — lets the pod reach your services by name (`postgres:5432`). Find it with
+  `docker network ls`. The stack must be up (`docker compose up -d`) before you launch a pod.
+- **`env`** — ⚠️ host `.env` values using `localhost` don't resolve inside the pod; inject
+  container-reachable URLs here. `${VAR}` pulls from `envFile` (then the host environment); an
+  unset variable is an error, so a missing secret fails at launch rather than as a DB error.
+- **`ports`** — container ports; each gets a free `127.0.0.1` host port per pod (printed at launch,
+  and available in the pod as `CLAUDE_POD_PORT_<port>`).
 
-## 2. Configure the launcher
-
-Open `scripts/claude-pod.sh` and edit the **CONFIG** block near the top:
-
-| Setting | What to put |
-|---|---|
-| `NETWORK` | Your app's Docker network, so the pod can reach services by name (e.g. `postgres:5432`). Find it with `docker network ls` — it's usually `<compose-project>_default`. Leave empty if the pod doesn't need your services. |
-| `EXPOSE_PORTS` | Ports to surface from the pod to `127.0.0.1`, e.g. `"3000 8080"` — only if you want to hit a dev server the pod runs. Empty otherwise. |
-| `EXTRA_ENV` | Extra env to inject. Most commonly a DB URL pointing at the **service name** on `NETWORK`. ⚠️ Host `.env` values using `localhost` won't resolve inside the pod — inject a container-reachable URL here. Example is in the file. |
-
-Why the same path on both sides? The project is mounted at its **identical absolute path**, so
-file references in logs and stack traces read the same whether Claude is on the host or in the pod.
+Commit the config — it holds no secrets, only references to them. Check it with `claude-pod doctor`.
 
 ---
 
-## 3. Authenticate the pod (one-time per host login)
+## 2. Agent permissions
 
-The pod **cannot** use the in-container `/login` — its browser OAuth redirect is rejected by the
-client. Instead, export your host session:
+Agents launch pods in many shapes — with `P=… &&`, after `cd …;`, with `"$(cat …)"`, redirects and
+`echo exit=$?`. Each shape is a different command string, so path-based rules like
+`Bash(./scripts/claude-pod.sh:*)` keep missing. `claude-pod run` removes the need for all of that
+plumbing, so one rule covers it. In the project's `.claude/settings.json`:
 
-```bash
-# Make sure you're logged in to Claude Code on the host first, then:
-bash scripts/claude-pod-auth.sh      # or: pnpm pod:auth
+```json
+{
+  "permissions": {
+    "allow": ["Bash(claude-pod run:*)"]
+  }
+}
 ```
 
-This copies your OAuth token from the Keychain into `~/.claude-pod/.credentials.json` and pre-sets
-the onboarding flags so the pod skips the theme/login wizard. The exported access token may show as
-already expired — that's fine, the pod refreshes it from the long-lived refresh token on launch.
+(Scoped to `run` on purpose: `claude-pod uninstall --yes` shouldn't be auto-approved.)
 
-> **Linux hosts:** there's no Keychain. Instead copy your file-based creds directly:
-> `mkdir -p ~/.claude-pod && cp ~/.claude/.credentials.json ~/.claude-pod/`.
+Then tell your agents how to call it — e.g. in `CLAUDE.md` or the orchestrating skill:
 
-**The one rule that avoids a world of pain:** the host and the pod share an OAuth lineage, and
-whichever refreshes a token first **rotates the other one out**. So:
+```markdown
+## Delegating to a sandboxed Claude
 
-- Run `claude-pod-auth.sh` **once** after a host login, then leave it alone.
-- **Don't** re-run it on a stale Keychain — re-exporting an already-rotated token causes a `401`.
-- The script has a **guard**: it refuses to overwrite when the pod's token is newer than the
-  Keychain's. After a deliberate fresh host `/login`, use `--force` to override it.
+Run sub-agents with exactly this form — one command, absolute paths, no `cd`, no variables,
+no `$(…)`, no redirects:
 
----
+    claude-pod run --model opus --prompt-file <abs>/step.md --out <abs>/step
 
-## 4. Launch
-
-Free any ports you told the launcher to expose (if your host app is using them), then:
-
-```bash
-bash scripts/claude-pod.sh claude --dangerously-skip-permissions --model opus "<your prompt>"
+It writes `<abs>/step.out`, `.err` and `.exit`, prints `exit=<code>`, and exits with that code.
+Read the `.out` file for the result.
 ```
 
-- `--model` accepts `opus` | `sonnet` | `haiku` (or a full model id). Availability follows your
-  subscription tier.
-- On first launch you'll get a one-time **"Bypass Permissions mode"** warning — that's a simple
-  terminal `y/N`, not the browser flow. Accept it; it persists.
-- A plain `bash scripts/claude-pod.sh` (no `claude`) drops you into a shell in the pod.
+Before → after:
 
-**Confirm you're actually inside the pod** — ask the running Claude to `run: echo "$CLAUDE_POD"; uname -s`.
-Inside the pod that prints `1` and `Linux`; on your host it's empty and `Darwin`. (Paths look
-identical on both because of the same-path mount, so don't rely on the path.)
+```bash
+# before
+P=/private/tmp/…/scratchpad && ./scripts/claude-pod.sh claude --print --dangerously-skip-permissions \
+  --model opus --output-format text "$(cat $P/step-implementer-6b1.md)" > $P/impl-6b1.out 2> $P/impl-6b1.err; \
+  echo "exit=$?" >> $P/impl-6b1.out
+
+# after
+claude-pod run --model opus --prompt-file /private/tmp/…/scratchpad/step-implementer-6b1.md --out /private/tmp/…/scratchpad/impl-6b1
+```
+
+Note the exit code now lives in `impl-6b1.exit` (and on stdout as `exit=0`), not appended to `.out`.
 
 ---
 
-## 5. (Optional) pnpm monorepos: make `node_modules` work on host *and* pod
+## 3. Migrating from the per-project scripts
 
-If you share one `node_modules` between your macOS host and the Linux pod (same bind-mounted
-folder), native packages (esbuild, sharp, next-swc, …) need binaries for **both** platforms.
-Add this to `pnpm-workspace.yaml` and re-run a clean `pnpm install`:
+If the project has the old `scripts/claude-pod.sh` / `scripts/claude-pod-auth.sh`:
+
+1. Move its `NETWORK`, ports and injected env into `claude-pod.config.json` (step 1).
+2. Delete both scripts, and any `pod` / `pod:auth` entries in `package.json`
+   (or point them at `claude-pod` / `claude-pod auth`).
+3. Replace the old permission rules with `Bash(claude-pod run:*)` (step 2).
+4. Update CLAUDE.md / skills that mention `./scripts/claude-pod.sh`.
+
+The pod itself is unchanged: same image, mounts, `~/.claude-pod` login and hardening flags. Your
+existing login keeps working — no need to re-run `auth`.
+
+---
+
+## 4. (Optional) pnpm monorepos: `node_modules` for host *and* pod
+
+Host (macOS) and pod (Linux) share the same `node_modules`, so native packages (esbuild, sharp,
+next-swc, …) need binaries for both. In `pnpm-workspace.yaml`, then a clean `pnpm install`:
 
 ```yaml
 supportedArchitectures:
@@ -125,37 +115,20 @@ supportedArchitectures:
   cpu: [current, arm64]
 ```
 
-**Seamless `dev` across host and pod:** if your dev script runs `docker compose up` to start a DB,
-that fails inside the pod (no Docker there). Gate it on the `CLAUDE_POD` marker the launcher injects:
+**One `dev` script for host and pod:** `docker compose` isn't available inside the pod. Gate it on
+the `CLAUDE_POD` marker:
 
 ```bash
-# scripts/dev.sh
-#!/usr/bin/env bash
-set -euo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
 [ -z "${CLAUDE_POD:-}" ] && docker compose up -d   # host only; in the pod the DB is already up
-# ...then run migrations + start your apps
 ```
 
 ---
 
-## Daily use & lifecycle
+## Pushing code / opening PRs
 
-- **Credentials persist across reboots** (they're on disk in `~/.claude-pod`). A new task is just a
-  new prompt — no re-auth needed if the token's still valid.
-- **After a restart:** start Docker, bring your app's network/services back up
-  (`docker compose up -d`), then launch as usual.
-- **If you hit `401 / Please run /login`:** do a fresh `/login` on the **host** (browser works
-  there), then `claude-pod-auth.sh` once (the guard allows it — Keychain is now newest), then relaunch.
-
----
-
-## Pushing code / opening PRs from a run
-
-The pod has **no git or GitHub credentials** by design. Don't inject them into a
-skip-permissions sandbox. Instead, let the agent create the branch and **commit locally** — because
-the project is bind-mounted, those commits appear in your host repo instantly. Then **push and open
-the PR from your host**, where your `gh`/SSH auth already lives:
+The pod has **no git or GitHub credentials** by design — don't inject them into a skip-permissions
+sandbox. Let the agent commit locally (the project is bind-mounted, so commits appear in your host
+repo instantly), then push and open the PR from the host:
 
 ```bash
 git push -u origin <branch>
@@ -164,19 +137,17 @@ gh pr create --fill
 
 ---
 
-## Gotchas (learned the hard way)
+## Gotchas
 
-- **Commit or stash unrelated work before an autonomous run.** An agent told to commit its work
-  often does `git add -A` — which will sweep *any* uncommitted file in the tree (including unrelated
-  edits) into its commits. Start from a clean working tree.
-- **Free exposed ports first.** The launcher publishes `EXPOSE_PORTS`; if your host app already holds
-  one, the container fails with "port is already allocated."
-- **Don't run git in the host repo while a pod session is mid-commit.** Host and pod share the same
-  `.git` and working tree — concurrent git operations can collide.
-- **Shell one-liners: call the script directly, don't go through `pnpm pod -- …`.** The image is
-  `FROM node:*`, whose entrypoint prepends `node` when the first arg starts with `-`. A stray `--`
-  becomes `node -- bash …` and fails. Use `bash scripts/claude-pod.sh bash -lc '…'`.
-- **The pod *can* read your project's `.env`** (it's inside the mounted folder) and has **outbound
-  internet**. It *cannot* see your home dir, SSH keys, Keychain, other repos, or your `gh` token.
-- **`NET=none`** (env var, supported by the base image's `claude-pod` script) cuts all networking if
-  you want to inspect untrusted code offline — but then Claude can't reach the API either.
+- **Start autonomous runs from a clean working tree.** Agents often `git add -A`, sweeping unrelated
+  uncommitted files into their commits.
+- **Parallel pods on one project share the working tree and `.git`.** Concurrent commits can
+  collide; per-pod worktrees are planned for v2. Don't run git on the host mid-commit either.
+- **Confirm you're in the pod:** `echo "$CLAUDE_POD"; uname -s` prints `1` and `Linux` inside it.
+  Paths look the same on both sides, so don't rely on them.
+- **First interactive `claude-pod claude --dangerously-skip-permissions`** shows a one-time
+  "Bypass Permissions mode" `y/N` in the terminal. Accept it; it persists.
+- **The pod can read your project's `.env`** and has outbound internet. It cannot see your home
+  dir, SSH keys, Keychain, other repos or your `gh` token.
+- **Running a git worktree** as the project: its `.git` file points into the main repo, which is not
+  mounted, so git commands inside the pod fail there. Launch from the main checkout for now.

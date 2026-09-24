@@ -1,0 +1,3 @@
+# The image needs nothing from the repo but the Dockerfile itself.
+*
+!Dockerfile
