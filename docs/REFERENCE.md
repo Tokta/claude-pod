@@ -220,10 +220,6 @@ No `sudo`, no writes to your existing `~/.claude/`, shell rc files, or system pa
 
 Running as root on the host makes Claude refuse `--dangerously-skip-permissions` (the pod runs as your user) — use a regular user.
 
-### Upgrading from the shared-state version
-
-Earlier versions kept one shared `~/.claude-pod` (a copied OAuth login, history for all projects) and trusted configs blindly. After upgrading: `claude-pod build`, `claude setup-token` + `claude-pod auth` (this deletes the old copied login), and `claude-pod trust` in each project with a config. `claude-pod doctor` points at leftover old state you can delete.
-
 ### Uninstall
 
 ```sh

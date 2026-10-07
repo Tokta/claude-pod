@@ -10,7 +10,7 @@ Then I found a small repo, forked it and adapted it to my needs. Now every sessi
 
 ## What it is
 
-A small CLI (command-line interface) that runs Claude Code inside a Docker container that mounts only the project you launch it from, so it can run with `--dangerously-skip-permissions` while your home directory, SSH (Secure Shell) keys and other projects stay invisible to it. The pod is treated as hostile: nothing it writes is trusted by the host afterwards.
+A small CLI that runs Claude Code inside a Docker container that mounts only the project you launch it from, so it can run with `--dangerously-skip-permissions` while your home directory, SSH keys and other projects stay invisible to it. The pod is treated as hostile: nothing it writes is trusted by the host afterwards.
 
 Unofficial: not affiliated with or endorsed by Anthropic.
 
